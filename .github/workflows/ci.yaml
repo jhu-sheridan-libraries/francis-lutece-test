@@ -1,0 +1,99 @@
+---
+name: ci
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: Lint
+    steps:
+      - run: echo "no linting happens yet. Should we use the the checkstyle maven plugin?"
+  maven-build:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: set up java
+        uses: actions/setup-java@v2
+        with:
+          java-version: '8'
+          distribution: 'zulu'
+
+      - name: Install old maven (PLEASE FIX ME)
+        run: |
+          curl -sSL https://archive.apache.org/dist/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz -o /tmp/apache-maven.tar.gz
+          cd /tmp
+          mkdir /home/runner/maven
+          tar -zxvf /tmp/apache-maven.tar.gz --strip-components=1 -C /home/runner/maven
+
+      - uses: actions/cache@v1
+        env:
+          cache-name: stfrancis-maven-cache
+        with:
+          path: |
+            ~/.m2/repository/
+            ~/assets/
+          key: ${{ runner.os }}-stfrancis-${{ hashfiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-stfrancis-
+
+      - name: check for the existence of assets
+        run: ls -lah ~/
+        
+      - name: checkout enroll plugin
+        uses: actions/checkout@v2
+        with:
+          repository: jhu-sheridan-libraries/lutece-enroll-plugin
+
+      - name: build enroll plugin
+        run: |
+          ~/maven/bin/mvn install -Dmaven.test.skip
+
+      - name: checkout gru appointment plugin
+        uses: actions/checkout@v2
+        with:
+          repository: jhu-sheridan-libraries/gru-plugin-appointment
+          ref: i18n-2.2
+
+      - name: build appointment plugin
+        run: |
+          ~/maven/bin/mvn install -Dmaven.test.skip
+
+      - name: check out the codebase
+        uses: actions/checkout@v2
+
+      - name: get various values for output
+        id: get_values
+        run: |
+          echo "hello there"
+          echo ::set-output name=project_version::$(~/maven/bin/mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo ::set-output name=sha_short::$(git rev-parse --short HEAD)
+          echo ::set-output name=created::$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+        
+      - name: build lutece war
+        run: |
+          ~/maven/bin/mvn lutece:site-assembly
+          mkdir -p ~/assets/
+          cp target/stfrancis-lutece-site-${{ steps.get_values.outputs.project_version }}.war ~/assets/lutece.war
+          
+  docker-build:
+    needs: maven-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@v1
+        env:
+          cache-name: stfrancis-maven-cache
+        with:
+          path: |
+            ~/.m2/repository/
+            ~/assets/
+          key: ${{ runner.os }}-stfrancis-${{ hashfiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-stfrancis-
+
+      - name: existence check
+        run: ls -lah ~/
+  
